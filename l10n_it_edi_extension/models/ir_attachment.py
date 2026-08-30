@@ -22,6 +22,31 @@ class IrAttachmentInherit(models.Model):
         """Hook to have a clean inheritance."""
         return "FoglioStileAssoSoftware.xsl"
 
+    def _decode_edi_l10n_it_edi(self, name, content):
+        # Since Odoo commit d1759c9 the official l10n_it_edi decoder returns
+        # a single dictionary per attachment. l10n_it_edi_extension instead
+        # expects one dictionary per FatturaElettronicaBody so multiple invoices
+        # are split into separate moves.
+        decoded = super()._decode_edi_l10n_it_edi(name, content)
+        if not decoded:
+            return decoded
+
+        result = []
+        for file_data in decoded:
+            xml_tree = file_data.get("xml_tree")
+            if xml_tree is None:
+                result.append(file_data)
+                continue
+            bodies = xml_tree.xpath("//FatturaElettronicaBody")
+            if len(bodies) <= 1:
+                result.append(file_data)
+                continue
+            for body in bodies:
+                body_file_data = dict(file_data)
+                body_file_data["xml_tree"] = body
+                result.append(body_file_data)
+        return result
+
     def get_xml_string(self):
         if not self._is_l10n_it_edi_import_file():
             raise UserError(self.env._("Invalid xml %s.") % self.name)
